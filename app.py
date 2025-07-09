@@ -281,15 +281,74 @@ class MistralEmbeddings:
 
 @st.cache_resource
 def load_embedding_model():
-    """Charge le modèle d'embedding Mistral - IDENTIQUE à rag_formation.py"""
+    """Détecte automatiquement le modèle d'embedding en fonction de la base ChromaDB"""
     try:
-        if not MISTRAL_API_KEY:
-            st.error("❌ Clé API Mistral manquante pour les embeddings")
-            return None
-            
-        return MistralEmbeddings(api_key=MISTRAL_API_KEY)
+        # D'abord, essayons de détecter les dimensions de la base existante
+        db_path = "chromadb_formation"
+        if os.path.exists(db_path):
+            try:
+                # Charger ChromaDB pour inspecter les dimensions
+                import chromadb
+                client = chromadb.PersistentClient(path=db_path)
+                collections = client.list_collections()
+                
+                if collections:
+                    collection = collections[0]
+                    # Essayer de récupérer un échantillon pour voir les dimensions
+                    sample = collection.peek(limit=1)
+                    if sample['embeddings']:
+                        dimensions = len(sample['embeddings'][0])
+                        st.info(f"🔍 Base détectée avec {dimensions} dimensions")
+                        
+                        # Adapter le modèle selon les dimensions
+                        if dimensions == 4096:
+                            st.info("🎯 Utilisation d'OpenAI text-embedding-3-large")
+                            from langchain_openai import OpenAIEmbeddings
+                            return OpenAIEmbeddings(
+                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+                                model="text-embedding-3-large"
+                            )
+                        elif dimensions == 3072:
+                            st.info("🎯 Utilisation d'OpenAI text-embedding-3-large (3072)")
+                            from langchain_openai import OpenAIEmbeddings
+                            return OpenAIEmbeddings(
+                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+                                model="text-embedding-3-large"
+                            )
+                        elif dimensions == 1536:
+                            st.info("🎯 Utilisation d'OpenAI text-embedding-ada-002")
+                            from langchain_openai import OpenAIEmbeddings
+                            return OpenAIEmbeddings(
+                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+                                model="text-embedding-ada-002"
+                            )
+                        elif dimensions == 1024:
+                            st.info("🎯 Utilisation de Mistral Embed")
+                            return MistralEmbeddings(api_key=MISTRAL_API_KEY)
+                        elif dimensions == 768:
+                            st.info("🎯 Utilisation d'all-mpnet-base-v2")
+                            from langchain_community.embeddings import HuggingFaceEmbeddings
+                            return HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+                        elif dimensions == 384:
+                            st.info("🎯 Utilisation d'all-MiniLM-L6-v2")
+                            from langchain_community.embeddings import HuggingFaceEmbeddings
+                            return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                        else:
+                            st.warning(f"⚠️ Dimensions inconnues: {dimensions}")
+                            
+            except Exception as inspect_error:
+                st.warning(f"Impossible d'inspecter la base: {inspect_error}")
+        
+        # Fallback par défaut
+        st.info("🔄 Utilisation du modèle par défaut (OpenAI)")
+        from langchain_openai import OpenAIEmbeddings
+        return OpenAIEmbeddings(
+            openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+            model="text-embedding-3-large"
+        )
+        
     except Exception as e:
-        st.error(f"❌ Erreur lors du chargement du modèle d'embedding Mistral: {e}")
+        st.error(f"❌ Erreur lors du chargement du modèle d'embedding: {e}")
         return None
 
 @st.cache_resource
