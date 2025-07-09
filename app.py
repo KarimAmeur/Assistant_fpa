@@ -251,13 +251,15 @@ def database_upload_interface():
 # Fonctions de mise en cache avec nouveaux imports
 @st.cache_resource
 def load_embedding_model():
-    """Charge le modèle d'embedding avec token HuggingFace"""
+    """Charge le modèle d'embedding compatible avec votre base"""
     try:
         model_kwargs = {"device": "cpu", "trust_remote_code": True}
         encode_kwargs = {"normalize_embeddings": True}
         
+        # Utilisez un modèle qui produit 4096 dimensions
         return HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_name="BAAI/bge-large-en-v1.5",  # 1024 dimensions
+            # ou essayez "text-embedding-3-large" si vous avez OpenAI
             model_kwargs=model_kwargs,
             encode_kwargs=encode_kwargs
         )
