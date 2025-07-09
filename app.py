@@ -13,36 +13,44 @@ import zipfile
 import shutil
 from pathlib import Path
 
-# CORRECTION: Import corrigé pour HuggingFaceEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
-
-# CORRECTION: Import corrigé pour Chroma
-from langchain_community.vectorstores import Chroma
-
-from langchain_mistralai import ChatMistralAI
-from prompting import (
-    retrieve_documents,
-    generate_context_response,
-    generate_example_training_plan,
-    generate_pedagogical_engineering_advice,
-    reformulate_competencies_apc,
-    generate_structured_training_scenario
+# Configuration de la page - DOIT être en début de script
+st.set_page_config(
+    page_title="Assistant FPA - Ingénierie de Formation",
+    page_icon="📘",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-
-# Import de la page RAG Personnel
-from user_rag_page import user_rag_page
 
 # Configuration des APIs - Utilise les secrets Streamlit
 try:
     MISTRAL_API_KEY = st.secrets["MISTRAL_API_KEY"]
     HUGGINGFACE_TOKEN = st.secrets.get("HUGGINGFACE_TOKEN", "")
-except:
+except Exception as e:
+    st.error(f"Erreur de configuration des secrets: {e}")
     MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
     HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN", "")
 
 # Configurer le token HuggingFace
 if HUGGINGFACE_TOKEN:
     os.environ["HUGGINGFACE_HUB_TOKEN"] = HUGGINGFACE_TOKEN
+
+# Imports après configuration
+try:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+    from langchain_community.vectorstores import Chroma
+    from langchain_mistralai import ChatMistralAI
+    from prompting import (
+        retrieve_documents,
+        generate_context_response,
+        generate_example_training_plan,
+        generate_pedagogical_engineering_advice,
+        reformulate_competencies_apc,
+        generate_structured_training_scenario
+    )
+    from user_rag_page import user_rag_page
+except ImportError as e:
+    st.error(f"Erreur d'importation: {e}")
+    st.stop()
 
 # Définition des couleurs
 COLORS = {
@@ -139,14 +147,7 @@ def local_css():
     </style>
     """, unsafe_allow_html=True)
 
-# Configuration de l'application Streamlit
-st.set_page_config(
-    page_title="Assistant FPA - Ingénierie de Formation",
-    page_icon="📘",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
+# Appliquer le CSS
 local_css()
 
 # NOUVELLE FONCTION : Nettoyage automatique ChromaDB
@@ -247,18 +248,16 @@ def database_upload_interface():
     
     return False
 
-# CORRECTION: Fonctions de mise en cache avec nouveaux imports
+# Fonctions de mise en cache avec nouveaux imports
 @st.cache_resource
 def load_embedding_model():
-    """Charge le modèle d'embedding avec token HuggingFace - VERSION CORRIGÉE"""
+    """Charge le modèle d'embedding avec token HuggingFace"""
     try:
-        # Configuration pour le nouveau package
-        model_kwargs = {"device": "cpu"}
+        model_kwargs = {"device": "cpu", "trust_remote_code": True}
         encode_kwargs = {"normalize_embeddings": True}
         
-        # CORRECTION: Utilisation du même modèle que partout ailleurs
         return HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",  # COHÉRENT avec rag_formation.py
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs=model_kwargs,
             encode_kwargs=encode_kwargs
         )
@@ -279,7 +278,6 @@ def load_vector_store():
             st.error("❌ Base vectorielle 'chromadb_formation' non trouvée")
             return None
             
-        # CORRECTION: Utilisation du nouveau Chroma avec gestion d'erreur
         try:
             vectorstore = Chroma(
                 persist_directory=db_path,
@@ -302,7 +300,6 @@ def load_vector_store():
                 else:
                     return None
             else:
-                # Autre erreur ChromaDB
                 st.error(f"❌ Erreur ChromaDB: {chroma_error}")
                 return None
                 
@@ -552,7 +549,7 @@ def main_chat_page():
             </div>
             """, unsafe_allow_html=True)
 
-# Page de scénarisation (version complète)
+# Page de scénarisation
 def scenarisation_page():
     """Page de scénarisation de formation"""
     
@@ -680,7 +677,7 @@ def scenarisation_page():
         </div>
         """, unsafe_allow_html=True)
 
-# CORRECTION: Onglets de navigation avec 3 onglets
+# Onglets de navigation
 tab1, tab2, tab3 = st.tabs(["💬 Assistant FPA", "🎯 Scénarisation", "📚 RAG Personnel"])
 
 with tab1:
@@ -690,4 +687,4 @@ with tab2:
     scenarisation_page()
 
 with tab3:
-    user_rag_page()  # Appel de la fonction pour afficher la page RAG Personnel
+    user_rag_page()
