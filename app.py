@@ -36,9 +36,9 @@ if HUGGINGFACE_TOKEN:
 
 # Imports après configuration
 try:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
     from langchain_community.vectorstores import Chroma
     from langchain_mistralai import ChatMistralAI
+    from mistralai.client import MistralClient
     from prompting import (
         retrieve_documents,
         generate_context_response,
@@ -249,22 +249,48 @@ def database_upload_interface():
     return False
 
 # Fonctions de mise en cache avec nouveaux imports
+class MistralEmbeddings:
+    """
+    Wrapper LangChain pour Mistral Embed (1024 dims).
+    Identique à celui utilisé dans rag_formation.py
+    """
+    def __init__(self, api_key: str, model: str = "mistral-embed"):
+        from mistralai.client import MistralClient
+        self.client = MistralClient(api_key=api_key)
+        self.model = model
+
+    def embed_documents(self, texts):
+        embeddings = []
+        batch_size = 50
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            try:
+                resp = self.client.embeddings(model=self.model, input=batch)
+                embeddings.extend([d.embedding for d in resp.data])
+            except Exception as e:
+                st.error(f"Erreur embedding lot {i//batch_size+1}: {e}")
+                embeddings.extend([[0.0]*1024 for _ in batch])
+        return embeddings
+
+    def embed_query(self, text: str):
+        try:
+            resp = self.client.embeddings(model=self.model, input=[text])
+            return resp.data[0].embedding
+        except Exception as e:
+            st.error(f"Erreur embedding requête: {e}")
+            return [0.0]*1024
+
 @st.cache_resource
 def load_embedding_model():
-    """Charge le modèle d'embedding compatible avec votre base"""
+    """Charge le modèle d'embedding Mistral - IDENTIQUE à rag_formation.py"""
     try:
-        model_kwargs = {"device": "cpu", "trust_remote_code": True}
-        encode_kwargs = {"normalize_embeddings": True}
-        
-        # Utilisez un modèle qui produit 4096 dimensions
-        return HuggingFaceEmbeddings(
-            model_name="BAAI/bge-large-en-v1.5",  # 1024 dimensions
-            # ou essayez "text-embedding-3-large" si vous avez OpenAI
-            model_kwargs=model_kwargs,
-            encode_kwargs=encode_kwargs
-        )
+        if not MISTRAL_API_KEY:
+            st.error("❌ Clé API Mistral manquante pour les embeddings")
+            return None
+            
+        return MistralEmbeddings(api_key=MISTRAL_API_KEY)
     except Exception as e:
-        st.error(f"❌ Erreur lors du chargement du modèle d'embedding: {e}")
+        st.error(f"❌ Erreur lors du chargement du modèle d'embedding Mistral: {e}")
         return None
 
 @st.cache_resource
