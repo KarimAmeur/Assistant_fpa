@@ -38,7 +38,7 @@ if HUGGINGFACE_TOKEN:
 try:
     from langchain_community.vectorstores import Chroma
     from langchain_mistralai import ChatMistralAI
-    from mistralai.client import MistralClient
+    from mistralai import Mistral
     from prompting import (
         retrieve_documents,
         generate_context_response,
@@ -251,12 +251,11 @@ def database_upload_interface():
 # Fonctions de mise en cache avec nouveaux imports
 class MistralEmbeddings:
     """
-    Wrapper LangChain pour Mistral Embed (1024 dims).
-    Identique à celui utilisé dans rag_formation.py
+    Wrapper LangChain pour Mistral Embed (1024 dims) - Version nouvelle API
     """
     def __init__(self, api_key: str, model: str = "mistral-embed"):
-        from mistralai.client import MistralClient
-        self.client = MistralClient(api_key=api_key)
+        from mistralai import Mistral
+        self.client = Mistral(api_key=api_key)
         self.model = model
 
     def embed_documents(self, texts):
@@ -265,7 +264,7 @@ class MistralEmbeddings:
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i+batch_size]
             try:
-                resp = self.client.embeddings(model=self.model, input=batch)
+                resp = self.client.embeddings.create(model=self.model, inputs=batch)
                 embeddings.extend([d.embedding for d in resp.data])
             except Exception as e:
                 st.error(f"Erreur embedding lot {i//batch_size+1}: {e}")
@@ -274,7 +273,7 @@ class MistralEmbeddings:
 
     def embed_query(self, text: str):
         try:
-            resp = self.client.embeddings(model=self.model, input=[text])
+            resp = self.client.embeddings.create(model=self.model, inputs=[text])
             return resp.data[0].embedding
         except Exception as e:
             st.error(f"Erreur embedding requête: {e}")
