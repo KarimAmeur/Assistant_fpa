@@ -35,7 +35,7 @@ from user_rag_page import user_rag_page
 # Configuration des APIs - Utilise les secrets Streamlit
 try:
     MISTRAL_API_KEY = st.secrets["MISTRAL_API_KEY"]
-    HUGGINGFACE_TOKEN = st.secrets["HUGGINGFACE_TOKEN"]
+    HUGGINGFACE_TOKEN = st.secrets.get("HUGGINGFACE_TOKEN", "")
 except:
     MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
     HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN", "")
@@ -118,6 +118,23 @@ def local_css():
             padding: 30px;
             text-align: center;
             margin: 20px 0;
+        }}
+        
+        .banner {{
+            background: linear-gradient(135deg, {COLORS["primary"]}, {COLORS["light_blue"]});
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }}
+        
+        .info-box {{
+            background-color: {COLORS["very_light_blue"]};
+            color: {COLORS["dark_gray"]};
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
         }}
     </style>
     """, unsafe_allow_html=True)
@@ -233,15 +250,15 @@ def database_upload_interface():
 # CORRECTION: Fonctions de mise en cache avec nouveaux imports
 @st.cache_resource
 def load_embedding_model():
-    """Charge le modèle d'embedding avec token HuggingFace"""
+    """Charge le modèle d'embedding avec token HuggingFace - VERSION CORRIGÉE"""
     try:
         # Configuration pour le nouveau package
         model_kwargs = {"device": "cpu"}
         encode_kwargs = {"normalize_embeddings": True}
         
-        # CORRECTION: Utilisation du nouveau HuggingFaceEmbeddings
+        # CORRECTION: Utilisation du même modèle que partout ailleurs
         return HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",  # Modèle public fiable
+            model_name="sentence-transformers/all-MiniLM-L6-v2",  # COHÉRENT avec rag_formation.py
             model_kwargs=model_kwargs,
             encode_kwargs=encode_kwargs
         )
@@ -492,7 +509,7 @@ def main_chat_page():
                     st.markdown(f"""
                     <div class="scenario-card">
                         <h4>Document {i}</h4>
-                        <p><span class="badge badge-blue">Score: {doc['score']:.2f}</span></p>
+                        <p><span style="background: {COLORS['primary']}; color: white; padding: 2px 8px; border-radius: 4px;">Score: {doc['score']:.2f}</span></p>
                         <p><strong>Titre:</strong> {doc['title']}</p>
                         <hr>
                         {doc['content']}
@@ -502,7 +519,7 @@ def main_chat_page():
     # Sidebar avec outils
     st.sidebar.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
-        <div class="logo" style="margin: 0 auto;">FPA</div>
+        <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #1D5B68, #94B7BD); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; font-size: 24px; font-weight: bold; color: white;">FPA</div>
         <h3>Assistant Formation</h3>
     </div>
     """, unsafe_allow_html=True)

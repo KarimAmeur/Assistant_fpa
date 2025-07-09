@@ -3,12 +3,9 @@ import traceback
 import csv
 from io import StringIO
 import numpy as np
-# import spacy  # SUPPRIMÉ pour Streamlit Cloud
 from typing import List, Dict, Any
 from sklearn.feature_extraction.text import TfidfVectorizer
 from langchain_mistralai import ChatMistralAI
-
-# CORRECTION: Import corrigé pour Chroma
 from langchain_community.vectorstores import Chroma
 
 import os
@@ -71,7 +68,6 @@ def extract_query_essence(query: str) -> str:
         print(f"Erreur lors de l'extraction (version simple): {e}")
         return query
 
-
 def retrieve_documents(
     vectorstore, 
     query: str, 
@@ -105,7 +101,7 @@ def retrieve_documents(
                 'content': doc.page_content,
                 'metadata': doc.metadata,
                 'score': raw_score,
-                'title': doc.metadata.get('titre', 'Document sans titre')
+                'title': doc.metadata.get('titre', doc.metadata.get('filename', 'Document sans titre'))
             })
 
         print(f"\n{'='*80}")
@@ -137,8 +133,7 @@ def retrieve_documents(
         print(f"Erreur lors de la récupération des documents: {e}")
         traceback.print_exc()
         return []
-    
-    
+
 def generate_context_response(
     llm, 
     query: str, 
@@ -190,7 +185,7 @@ def generate_context_response(
             history_text += f"[{i+1}] {role}: {msg['content']}\n\n"
     
     full_prompt = f"""
-    Tu es un assistant d'information spécialisé dans la création de réponses détaillées, précises et nuancées.
+    Tu es un assistant d'information spécialisé dans la création de réponses détaillées, précises et nuancées sur la formation professionnelle pour adultes.
     
     {history_text}
     
@@ -212,7 +207,7 @@ def generate_context_response(
     10. Adopte un ton professionnel, précis et nuancé
     11. Évite les simplifications excessives et présente la complexité du sujet quand c'est nécessaire
     
-    Ta réponse doit être la plus informative et complète possible tout en restant pertinente.
+    Ta réponse doit être la plus informative et complète possible tout en restant pertinente et spécialisée dans le domaine de la formation professionnelle pour adultes.
     """
     
     try:
@@ -237,19 +232,21 @@ def generate_context_response(
         logging.error(f"Erreur lors de la génération de la réponse: {e}")
         logging.exception("Détails de l'erreur:")
         return "Je n'ai pas pu générer une réponse complète en raison d'une erreur technique. Pourriez-vous reformuler votre question ou réessayer plus tard?"
-    
 
 def generate_example_training_plan(llm) -> str:
     """Génère un exemple de plan de formation."""
     exemple_prompt = """
-    Génère un exemple de plan de formation professionnelle détaillé, 
+    Génère un exemple de plan de formation professionnelle détaillé pour adultes en formation continue, 
     incluant:
     - Contexte de la formation
-    - Objectifs pédagogiques
+    - Objectifs pédagogiques formulés selon l'approche par compétences
     - Public cible
-    - Méthodes et modalités
+    - Méthodes et modalités pédagogiques
     - Contenu et progression
     - Évaluation des compétences
+    - Ressources nécessaires
+    
+    Assure-toi que l'exemple soit concret, applicable et respecte les standards de l'ingénierie pédagogique.
     """
     
     try:
@@ -270,8 +267,16 @@ def generate_pedagogical_engineering_advice(llm) -> str:
     """Génère des conseils d'ingénierie pédagogique."""
     aide_prompt = """
     Donne des conseils professionnels pour construire 
-    une démarche d'ingénierie pédagogique efficace, 
-    en détaillant les étapes clés et les bonnes pratiques.
+    une démarche d'ingénierie pédagogique efficace pour la formation professionnelle d'adultes, 
+    en détaillant:
+    - Les étapes clés du processus d'ingénierie pédagogique
+    - Les bonnes pratiques à suivre
+    - Les méthodes d'analyse des besoins
+    - Les outils d'évaluation des compétences
+    - Les stratégies d'adaptation aux différents publics
+    - Les erreurs courantes à éviter
+    
+    Focalise-toi sur des conseils pratiques et applicables immédiatement.
     """
     
     try:
@@ -287,7 +292,7 @@ def generate_pedagogical_engineering_advice(llm) -> str:
     except Exception as e:
         logging.error(f"Erreur lors de la génération des conseils d'ingénierie: {e}")
         return "Impossible de générer des conseils d'ingénierie pédagogique."
-    
+
 def reformulate_competencies_apc(
     llm, 
     vectorstore, 
@@ -305,22 +310,23 @@ def reformulate_competencies_apc(
     ])
     
     reformulation_prompt = f"""
-    Contexte des documents récupérés:
+    Contexte des documents récupérés sur l'Approche Par Compétences:
     {context}
     
-    Compétences initiales:
+    Compétences initiales à reformuler:
     {initial_competencies}
     
     Instructions pour la reformulation selon l'Approche Par Compétences (APC) de TARDIF:
     1. Transformer les compétences en énoncés précis et observables
-    2. Utiliser la structure : Verbe d'action + Contexte + Critères de performance
+    2. Utiliser la structure : Verbe d'action + Objet + Contexte + Critères de performance
     3. Assurer que chaque compétence soit :
-       - Réaliste
-       - Mesurable
-       - Contextualisée
-       - Alignée avec les standards professionnels
+       - Réaliste et atteignable
+       - Mesurable et évaluable
+       - Contextualisée dans un environnement professionnel
+       - Alignée avec les standards professionnels du domaine
     4. Décomposer les compétences complexes en composantes spécifiques
-    5. Mettre en évidence le résultat attendu plutôt que le processus
+    5. Mettre en évidence le résultat attendu plutôt que le processus d'apprentissage
+    6. Inclure des indicateurs de performance pour chaque compétence
     
     Compétences reformulées selon l'APC:
     """
@@ -338,7 +344,7 @@ def reformulate_competencies_apc(
     except Exception as e:
         logging.error(f"Erreur lors de la reformulation des compétences: {e}")
         return "Impossible de reformuler les compétences selon l'APC."
-    
+
 def generate_structured_training_scenario(llm, vectorstore, input_data, input_type, duration_minutes=210):
     """Génère un scénario de formation structuré."""
     csv_structure = """DURÉE\tHORAIRES\tCONTENU\tOBJECTIFS PÉDAGOGIQUES\tMETHODE\tREPARTITION DES APPRENANTS\tACTIVITES\t\tRESSOURCES et MATERIEL\tEVALUATION\t
@@ -402,7 +408,7 @@ def generate_structured_training_scenario(llm, vectorstore, input_data, input_ty
     
     2. OBJECTIFS PÉDAGOGIQUES SELON L'APC:
        - Formule 3-5 objectifs pédagogiques spécifiques à {input_data}
-       - Utilise la structure TARDIF: Verbe d'action + Contexte + Critères de performance
+       - Utilise la structure TARDIF: Verbe d'action + Objet + Contexte + Critères de performance
        - Assure-toi que les objectifs soient observables, mesurables et contextualisés
        - Décompose les compétences complexes en composantes spécifiques
     

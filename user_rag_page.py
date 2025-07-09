@@ -9,22 +9,42 @@ from langchain_community.vectorstores import Chroma
 import pandas as pd
 import PyPDF2
 import docx
-import torch
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # Import pour PowerPoint
 try:
     from pptx import Presentation
 except ImportError:
-    # Tenter d'installer pptx si non disponible
-    import subprocess
-    import sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "python-pptx"])
-    from pptx import Presentation
+    Presentation = None
+    st.warning("⚠️ Module python-pptx non disponible. Les fichiers PowerPoint ne seront pas supportés.")
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+def get_embedding_model():
+    """Crée et retourne le modèle d'embedding HuggingFace"""
+    try:
+        # Configuration pour le modèle
+        model_kwargs = {"device": "cpu"}
+        encode_kwargs = {"normalize_embeddings": True}
+        
+        # Récupération du token HuggingFace depuis les secrets ou variables d'env
+        try:
+            huggingface_token = st.secrets.get("HUGGINGFACE_TOKEN", os.getenv("HUGGINGFACE_TOKEN", ""))
+            if huggingface_token:
+                os.environ["HUGGINGFACE_HUB_TOKEN"] = huggingface_token
+        except:
+            pass  # Les secrets peuvent ne pas être disponibles en développement local
+        
+        return HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs=model_kwargs,
+            encode_kwargs=encode_kwargs
+        )
+    except Exception as e:
+        st.error(f"❌ Erreur lors du chargement du modèle d'embedding: {e}")
+        return None
 
 def extract_text_from_pdf(file_path: str) -> str:
     """Extraire le texte d'un fichier PDF."""
@@ -52,6 +72,9 @@ def extract_text_from_docx(file_path: str) -> str:
 
 def extract_text_from_pptx(file_path: str) -> str:
     """Extraire le texte d'un fichier PowerPoint."""
+    if Presentation is None:
+        return "Extraction PowerPoint non disponible - module python-pptx manquant"
+    
     try:
         prs = Presentation(file_path)
         full_text = ""
@@ -135,18 +158,21 @@ def user_rag_page():
         
         # Widget de téléchargement de fichiers
         uploaded_files = st.file_uploader(
-            "Sélectionnez un ou plusieurs fichiers (PDF, DOCX, PPTX, XLSX)",
-            type=["pdf", "docx", "pptx", "ppt", "xlsx", "xls"],
+            "Sélectionnez un ou plusieurs fichiers",
+            type=["pdf", "docx", "pptx", "ppt", "xlsx", "xls", "txt"],
             accept_multiple_files=True,
             help="Les fichiers seront traités puis ajoutés à votre RAG personnel"
         )
         
-        # Paramètres fixes pour les chunks
-        chunk_size = 256
-        chunk_overlap_percent = 10
-        overlap_chars = int(chunk_size * (chunk_overlap_percent / 100))
+        # Paramètres des chunks
+        col1, col2 = st.columns(2)
+        with col1:
+            chunk_size = st.slider("Taille des chunks", 128, 2048, 512, 128)
+        with col2:
+            chunk_overlap_percent = st.slider("Chevauchement (%)", 5, 50, 10, 5)
         
-        st.info(f"Les documents seront automatiquement découpés en chunks de {chunk_size} caractères, avec un chevauchement de {overlap_chars} caractères.")
+        overlap_chars = int(chunk_size * (chunk_overlap_percent / 100))
+        st.info(f"Chunks de {chunk_size} caractères avec {overlap_chars} caractères de chevauchement")
         
         # Bouton de traitement
         process_button = st.button(
@@ -168,13 +194,13 @@ def user_rag_page():
                         with open(file_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
                         file_paths.append(file_path)
-                        st.write(f"Fichier sauvegardé : {uploaded_file.name}")
+                        st.write(f"✅ Fichier sauvegardé : {uploaded_file.name}")
                     
                     # Extraction du texte des fichiers
                     documents = []
                     
                     for file_path in file_paths:
-                        st.write(f"Traitement de {os.path.basename(file_path)}...")
+                        st.write(f"📖 Traitement de {os.path.basename(file_path)}...")
                         
                         # Déterminer le type de fichier et extraire le texte
                         file_extension = os.path.splitext(file_path)[1].lower()
@@ -187,6 +213,13 @@ def user_rag_page():
                             text = extract_text_from_pptx(file_path)
                         elif file_extension in ['.xlsx', '.xls']:
                             text = extract_text_from_xlsx(file_path)
+                        elif file_extension == '.txt':
+                            try:
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    text = f.read()
+                            except Exception as e:
+                                st.warning(f"Erreur lors de la lecture du fichier texte: {e}")
+                                continue
                         else:
                             st.warning(f"Type de fichier non supporté : {file_extension}")
                             continue
@@ -197,7 +230,7 @@ def user_rag_page():
                         
                         st.write(f"✅ Texte extrait ({len(text)} caractères)")
                         
-                        # Découpage du texte en chunks avec paramètres fixes
+                        # Découpage du texte en chunks
                         text_splitter = RecursiveCharacterTextSplitter(
                             chunk_size=chunk_size,
                             chunk_overlap=overlap_chars,
@@ -227,11 +260,15 @@ def user_rag_page():
                     
                     # Création ou mise à jour de la base vectorielle
                     if documents:
-                        st.write(f"🧠 Vectorisation de {len(documents)} documents...")
+                        st.write(f"🧠 Vectorisation de {len(documents)} chunks...")
                         
                         try:
                             # Récupérer le modèle d'embedding
                             embeddings = get_embedding_model()
+                            
+                            if embeddings is None:
+                                st.error("❌ Impossible de charger le modèle d'embedding")
+                                return
                             
                             # Déterminer s'il faut créer une nouvelle base ou mettre à jour l'existante
                             if st.session_state.RAG_user is None:
@@ -242,27 +279,30 @@ def user_rag_page():
                                     embedding=embeddings,
                                     persist_directory=persist_directory
                                 )
-                                st.session_state.RAG_user.persist()
                                 st.write(f"🎉 Nouvelle base vectorielle créée avec {len(documents)} documents")
                             else:
                                 # Mise à jour de la base existante
                                 st.session_state.RAG_user.add_documents(documents=documents)
-                                st.session_state.RAG_user.persist()
                                 st.write(f"🔄 Base vectorielle mise à jour avec {len(documents)} nouveaux documents")
                             
-                            status.update(label="Traitement terminé avec succès!", state="complete", expanded=False)
+                            status.update(label="✅ Traitement terminé avec succès!", state="complete", expanded=False)
                             
                             # Indiquer le nombre total de documents dans la base
-                            total_docs = len(st.session_state.RAG_user.get())
-                            st.success(f"Votre RAG personnel contient maintenant {total_docs} chunks de documents")
+                            try:
+                                total_docs = len(st.session_state.RAG_user.get()['documents'])
+                                st.success(f"🎯 Votre RAG personnel contient maintenant {total_docs} chunks de documents")
+                            except:
+                                st.success("✅ Documents ajoutés avec succès à votre RAG personnel")
+                                
+                            time.sleep(1)
                             st.rerun()
+                            
                         except Exception as e:
-                            status.update(label=f"Erreur lors de la vectorisation: {str(e)}", state="error")
+                            status.update(label=f"❌ Erreur lors de la vectorisation: {str(e)}", state="error")
                             st.error(f"Erreur de vectorisation: {str(e)}")
                     else:
-                        status.update(label="Aucun document valide à vectoriser", state="error")
+                        status.update(label="⚠️ Aucun document valide à vectoriser", state="error")
                         st.warning("Aucun document valide n'a pu être traité")
-    
     
     with right_col:
         st.markdown("""
@@ -287,20 +327,10 @@ def user_rag_page():
                     filetype = metadata.get('type', 'Inconnu')
                     
                     # Compter par nom de fichier
-                    if filename in sources:
-                        sources[filename] += 1
-                    else:
-                        sources[filename] = 1
+                    sources[filename] = sources.get(filename, 0) + 1
                     
                     # Compter par type de fichier
-                    if filetype in file_types:
-                        file_types[filetype] += 1
-                    else:
-                        file_types[filetype] = 1
-                
-                # Le reste du code reste similaire...
-            except Exception as e:
-                st.error(f"Erreur lors de la récupération des informations sur le RAG: {str(e)}")
+                    file_types[filetype] = file_types.get(filetype, 0) + 1
                 
                 st.markdown(f"""
                 <div class="info-box">
@@ -313,23 +343,21 @@ def user_rag_page():
                 """, unsafe_allow_html=True)
                 
                 # Afficher la répartition par type de fichier
-                st.markdown("<p><strong>📊 Répartition par type de fichier:</strong></p>", unsafe_allow_html=True)
-                for filetype, count in file_types.items():
-                    file_emoji = {
-                        'pdf': '📄', 
-                        'docx': '📝', 
-                        'pptx': '📊',
-                        'ppt': '📊',
-                        'xlsx': '📈',
-                        'xls': '📈'
-                    }.get(filetype, '📁')
-                    
-                    st.markdown(f"- {file_emoji} **{filetype.upper()}**: {count} chunks")
+                if file_types:
+                    st.markdown("<p><strong>📊 Répartition par type:</strong></p>", unsafe_allow_html=True)
+                    for filetype, count in file_types.items():
+                        file_emoji = {
+                            'pdf': '📄', 'docx': '📝', 'pptx': '📊', 'ppt': '📊',
+                            'xlsx': '📈', 'xls': '📈', 'txt': '📄'
+                        }.get(filetype.lower(), '📁')
+                        
+                        st.markdown(f"- {file_emoji} **{filetype.upper()}**: {count} chunks")
                 
                 # Afficher la liste des fichiers
-                st.markdown("<p><strong>📁 Fichiers vectorisés:</strong></p>", unsafe_allow_html=True)
-                for filename, count in sources.items():
-                    st.markdown(f"- **{filename}**: {count} chunks")
+                if sources:
+                    st.markdown("<p><strong>📁 Fichiers vectorisés:</strong></p>", unsafe_allow_html=True)
+                    for filename, count in sources.items():
+                        st.markdown(f"- **{filename}**: {count} chunks")
                 
                 # Option pour tester le RAG
                 st.markdown("""
@@ -340,36 +368,35 @@ def user_rag_page():
                 
                 test_query = st.text_input(
                     "Saisissez une requête de test",
-                    placeholder="Exemple: Quels sont les points clés abordés dans mes documents?",
+                    placeholder="Exemple: Quels sont les points clés abordés?",
                     help="Cette requête sera utilisée pour rechercher dans vos documents"
                 )
                 
                 if st.button("🔎 Rechercher", use_container_width=True) and test_query:
                     # Effectuer la recherche
-                    with st.spinner("Recherche en cours..."):
-                        # Effectuer la recherche similaire
-                        results = st.session_state.RAG_user.similarity_search_with_score(
-                        query=test_query,
-                        k=3  # Nombre de résultats à afficher
-                        )
-                        
-                        if results:
-                            st.markdown("<p><strong>📑 Résultats de la recherche:</strong></p>", unsafe_allow_html=True)
-                            for i, (doc, score) in enumerate(results, 1):
-                                file_type = doc.metadata.get('type', 'inconnu')
-                                file_emoji = {
-                                    'pdf': '📄', 
-                                    'docx': '📝', 
-                                    'pptx': '📊',
-                                    'ppt': '📊',
-                                    'xlsx': '📈',
-                                    'xls': '📈'
-                                }.get(file_type, '📁')
-                                
-                                with st.expander(f"{file_emoji} Résultat {i} - Score: {score:.4f} - Source: {doc.metadata.get('filename', 'Inconnu')}"):
-                                    st.markdown(f"**Extrait du document:**\n\n{doc.page_content}")
-                        else:
-                            st.info("Aucun résultat correspondant à votre requête")
+                    with st.spinner("🔍 Recherche en cours..."):
+                        try:
+                            results = st.session_state.RAG_user.similarity_search_with_score(
+                                query=test_query,
+                                k=3  # Nombre de résultats à afficher
+                            )
+                            
+                            if results:
+                                st.markdown("<p><strong>📑 Résultats de la recherche:</strong></p>", unsafe_allow_html=True)
+                                for i, (doc, score) in enumerate(results, 1):
+                                    file_type = doc.metadata.get('type', 'inconnu')
+                                    file_emoji = {
+                                        'pdf': '📄', 'docx': '📝', 'pptx': '📊', 'ppt': '📊',
+                                        'xlsx': '📈', 'xls': '📈', 'txt': '📄'
+                                    }.get(file_type.lower(), '📁')
+                                    
+                                    with st.expander(f"{file_emoji} Résultat {i} - Score: {score:.4f} - Source: {doc.metadata.get('filename', 'Inconnu')}"):
+                                        st.markdown(f"**Extrait du document:**\n\n{doc.page_content}")
+                            else:
+                                st.info("Aucun résultat correspondant à votre requête")
+                        except Exception as e:
+                            st.error(f"Erreur lors de la recherche: {e}")
+                            
             except Exception as e:
                 st.error(f"Erreur lors de la récupération des informations sur le RAG: {str(e)}")
         else:
@@ -379,20 +406,28 @@ def user_rag_page():
             <div class="info-box" style="margin-top: 20px;">
                 <p><strong>ℹ️ Comment utiliser cette fonctionnalité:</strong></p>
                 <ol>
-                    <li>Téléchargez vos documents (PDF, Word, PowerPoint, Excel)</li>
+                    <li>Téléchargez vos documents (PDF, Word, PowerPoint, Excel, TXT)</li>
+                    <li>Ajustez les paramètres de découpage si nécessaire</li>
                     <li>Cliquez sur "Traiter et vectoriser les documents"</li>
                     <li>Une fois vos documents vectorisés, vous pourrez tester la recherche</li>
                 </ol>
-                <p>Vos documents seront stockés uniquement dans votre session Streamlit actuelle et ne seront pas conservés après la fermeture de l'application.</p>
+                <p><strong>Note:</strong> Vos documents sont stockés temporairement dans votre session et ne sont pas conservés après fermeture.</p>
             </div>
             """, unsafe_allow_html=True)
         
-        # Ajouter un bouton pour effacer le RAG personnel
+        # Bouton pour effacer le RAG personnel
         if st.session_state.RAG_user is not None:
             if st.button("🗑️ Effacer mon RAG personnel", type="secondary", use_container_width=True):
-                # Confirmation
-                confirm = st.checkbox("Confirmer la suppression de tous mes documents")
-                if confirm:
+                if st.checkbox("✅ Confirmer la suppression de tous mes documents"):
+                    try:
+                        # Supprimer le dossier de persistence s'il existe
+                        if os.path.exists("chroma_db_user"):
+                            import shutil
+                            shutil.rmtree("chroma_db_user")
+                    except:
+                        pass  # Ignore les erreurs de suppression
+                    
                     st.session_state.RAG_user = None
-                    st.success("Votre RAG personnel a été effacé")
-                    st.experimental_rerun()
+                    st.success("✅ Votre RAG personnel a été effacé")
+                    time.sleep(1)
+                    st.rerun()
