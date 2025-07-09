@@ -9,11 +9,9 @@ chromadb==0.4.15
 pysqlite3-binary
 sentence-transformers
 langchain==0.0.340
-langchain-community==0.0.38
+langchain-community==0.0.35
 langchain-mistralai
 python-pptx
 openpyxl
 scikit-learn
 huggingface-hub
-markdown-it-py>=2.0.0,<4.0.0
-rich>=10.0.0,<15.0.0
