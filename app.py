@@ -281,75 +281,73 @@ class MistralEmbeddings:
 
 @st.cache_resource
 def load_embedding_model():
-    """Détecte automatiquement le modèle d'embedding en fonction de la base ChromaDB"""
-    try:
-        # D'abord, essayons de détecter les dimensions de la base existante
-        db_path = "chromadb_formation"
-        if os.path.exists(db_path):
-            try:
-                # Charger ChromaDB pour inspecter les dimensions
-                import chromadb
-                client = chromadb.PersistentClient(path=db_path)
-                collections = client.list_collections()
+    """Charge le modèle d'embedding - ESSAIE TOUS LES MODÈLES JUSQU'À CE QUE ÇA MARCHE"""
+    
+    # Liste des modèles à essayer dans l'ordre
+    models_to_try = [
+        # OpenAI models
+        {
+            "name": "OpenAI text-embedding-3-large",
+            "dims": 3072,
+            "code": lambda: __import__('langchain_openai', fromlist=['OpenAIEmbeddings']).OpenAIEmbeddings(
+                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+                model="text-embedding-3-large"
+            )
+        },
+        {
+            "name": "OpenAI text-embedding-ada-002", 
+            "dims": 1536,
+            "code": lambda: __import__('langchain_openai', fromlist=['OpenAIEmbeddings']).OpenAIEmbeddings(
+                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+                model="text-embedding-ada-002"
+            )
+        },
+        # Mistral
+        {
+            "name": "Mistral Embed",
+            "dims": 1024, 
+            "code": lambda: MistralEmbeddings(api_key=MISTRAL_API_KEY)
+        },
+        # HuggingFace models
+        {
+            "name": "all-mpnet-base-v2",
+            "dims": 768,
+            "code": lambda: __import__('langchain_community.embeddings', fromlist=['HuggingFaceEmbeddings']).HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-mpnet-base-v2"
+            )
+        },
+        {
+            "name": "all-MiniLM-L6-v2",
+            "dims": 384,
+            "code": lambda: __import__('langchain_community.embeddings', fromlist=['HuggingFaceEmbeddings']).HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+        }
+    ]
+    
+    for model_info in models_to_try:
+        try:
+            st.info(f"🔄 Essai de {model_info['name']} ({model_info['dims']} dims)")
+            embedding_model = model_info["code"]()
+            
+            # Test avec ChromaDB
+            db_path = "chromadb_formation"
+            if os.path.exists(db_path):
+                vectorstore = Chroma(
+                    persist_directory=db_path,
+                    embedding_function=embedding_model
+                )
+                # Test simple
+                vectorstore.similarity_search("test", k=1)
+                st.success(f"✅ {model_info['name']} fonctionne !")
+                return embedding_model
                 
-                if collections:
-                    collection = collections[0]
-                    # Essayer de récupérer un échantillon pour voir les dimensions
-                    sample = collection.peek(limit=1)
-                    if sample['embeddings']:
-                        dimensions = len(sample['embeddings'][0])
-                        st.info(f"🔍 Base détectée avec {dimensions} dimensions")
-                        
-                        # Adapter le modèle selon les dimensions
-                        if dimensions == 4096:
-                            st.info("🎯 Utilisation d'OpenAI text-embedding-3-large")
-                            from langchain_openai import OpenAIEmbeddings
-                            return OpenAIEmbeddings(
-                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-                                model="text-embedding-3-large"
-                            )
-                        elif dimensions == 3072:
-                            st.info("🎯 Utilisation d'OpenAI text-embedding-3-large (3072)")
-                            from langchain_openai import OpenAIEmbeddings
-                            return OpenAIEmbeddings(
-                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-                                model="text-embedding-3-large"
-                            )
-                        elif dimensions == 1536:
-                            st.info("🎯 Utilisation d'OpenAI text-embedding-ada-002")
-                            from langchain_openai import OpenAIEmbeddings
-                            return OpenAIEmbeddings(
-                                openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-                                model="text-embedding-ada-002"
-                            )
-                        elif dimensions == 1024:
-                            st.info("🎯 Utilisation de Mistral Embed")
-                            return MistralEmbeddings(api_key=MISTRAL_API_KEY)
-                        elif dimensions == 768:
-                            st.info("🎯 Utilisation d'all-mpnet-base-v2")
-                            from langchain_community.embeddings import HuggingFaceEmbeddings
-                            return HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-                        elif dimensions == 384:
-                            st.info("🎯 Utilisation d'all-MiniLM-L6-v2")
-                            from langchain_community.embeddings import HuggingFaceEmbeddings
-                            return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                        else:
-                            st.warning(f"⚠️ Dimensions inconnues: {dimensions}")
-                            
-            except Exception as inspect_error:
-                st.warning(f"Impossible d'inspecter la base: {inspect_error}")
-        
-        # Fallback par défaut
-        st.info("🔄 Utilisation du modèle par défaut (OpenAI)")
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(
-            openai_api_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
-            model="text-embedding-3-large"
-        )
-        
-    except Exception as e:
-        st.error(f"❌ Erreur lors du chargement du modèle d'embedding: {e}")
-        return None
+        except Exception as e:
+            st.warning(f"❌ {model_info['name']} échoué: {str(e)[:100]}")
+            continue
+    
+    st.error("❌ Aucun modèle d'embedding ne fonctionne")
+    return None
 
 @st.cache_resource
 def load_vector_store():
