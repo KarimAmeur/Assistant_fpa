@@ -12,6 +12,5 @@ venv/
 .streamlit/secrets.toml
 *.sqlite3
 *.db
-*.txt
 accestoeknMistralAI.txt
 chromadb_formation/

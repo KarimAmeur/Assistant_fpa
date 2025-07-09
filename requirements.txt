@@ -1,29 +1,6 @@
-# ✅ SOLUTION SANS CONFLIT - Laisse pip résoudre automatiquement
-streamlit==1.32.0
-
-# LangChain sans versions spécifiques (auto-resolve les conflits)
-langchain
-langchain-community  
-langchain-mistralai
-
-# ChromaDB - Version récente compatible avec mistralai
-chromadb==0.4.15
-pysqlite3-binary
-
-# ML/AI
-sentence-transformers
-scikit-learn
-
-# APIs
-mistralai==0.4.0
-
-# Traitement fichiers
-PyPDF2
-python-docx
-python-pptx
-openpyxl
-
-# Dépendances de base
-pandas
-numpy
-requests
+streamlit==1.35.0
+langchain-community==0.2.5
+langchain-mistralai==0.1.8
+mistralai==0.4.2
+chromadb==0.5.0
+pysqlite3-binary==0.5.2
